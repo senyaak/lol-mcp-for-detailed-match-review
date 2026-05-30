@@ -149,6 +149,7 @@ async function buildMatchDetail(
   match: RawMatch,
   targetPuuid: string,
   opts: EnrichOptions,
+  isLatest: boolean,
 ): Promise<DistilledMatch & { _warnings?: string[] }> {
   const warnings: string[] = [];
   const platformId = match.info.platformId;
@@ -186,8 +187,36 @@ async function buildMatchDetail(
       warnings.push("some ranks could not be fetched");
     }
 
-    // Per-match LP, recorded by the background poller (any ranked game it saw).
-    if (detail.target && RANKED_QUEUES[match.info.queueId]) {
+    // Per-match LP. Recorded by the background poller, but when viewing the
+    // latest ranked game we also do a live observation right now so a
+    // just-finished game shows its LP immediately (no waiting for the next poll).
+    const queue = RANKED_QUEUES[match.info.queueId];
+    if (detail.target && queue) {
+      if (isLatest && !getLpForMatch(match.metadata.matchId)) {
+        try {
+          const fresh = await getLeagueEntriesByPuuid(
+            platformId,
+            targetPuuid,
+            true,
+          );
+          const qType = queue === "Solo" ? "RANKED_SOLO_5x5" : "RANKED_FLEX_SR";
+          const e = fresh.find((x) => x.queueType === qType);
+          if (e) {
+            recordPoll(
+              targetPuuid,
+              queue,
+              e.tier,
+              e.rank,
+              e.leaguePoints,
+              e.wins,
+              e.losses,
+              match.metadata.matchId,
+            );
+          }
+        } catch {
+          /* live LP refresh is best-effort */
+        }
+      }
       const rec = getLpForMatch(match.metadata.matchId);
       if (rec) {
         detail.target.lpChange = {
@@ -418,14 +447,15 @@ function registerTools(server: McpServer): void {
           id = ids[0];
         }
 
+        const isLatest = !matchId && index === 0;
         const match = await getMatch(region, id);
-        const detail = await buildMatchDetail(region, match, account.puuid, {
-          names,
-          ranks,
-          mastery,
-          timeline,
-          history,
-        });
+        const detail = await buildMatchDetail(
+          region,
+          match,
+          account.puuid,
+          { names, ranks, mastery, timeline, history },
+          isLatest,
+        );
         return asText(detail);
       } catch (err) {
         return asError(err);
