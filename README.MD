@@ -24,7 +24,7 @@ I gain?"* 🧠
 | `names` | Item/rune/spell ids resolved to readable names via Data Dragon. | cached static |
 | `ranks` | Each of the 10 players' ranked tier/division/LP + split winrate & hot streak (League-V4). | ~10 calls |
 | `mastery` | Each player's mastery level + points on the champion they played (Champion-Mastery-V4). | ~10 calls |
-| `timeline` | Per-minute gold/xp/cs snapshots (10/15/20/25 min) + a log of kill/objective/tower events, **and** the target's `laning` score. | 1 call |
+| `timeline` | Per-minute gold/xp/cs/level/damage snapshots (one per game minute) + a log of kill/objective/tower events, **and** the target's `laning` score. | 1 call |
 | `history` | Rough recent form for **all 10** players: last N games as champion / score / win-loss (remakes flagged). Default 5, max 10, 0 = off. | ~N+1 calls/player |
 
 All enrichments are best-effort: a failing sub-request is noted in `_warnings`

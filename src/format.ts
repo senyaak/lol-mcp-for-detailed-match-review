@@ -422,11 +422,8 @@ export interface DistilledTimeline {
   events: TimelineEvent[];
 }
 
-/** Minute marks at which we snapshot the game state. */
-const SNAPSHOT_MINUTES = [10, 15, 20, 25, 30];
-
 /**
- * Distill a timeline: per-minute snapshots at key marks (gold/xp/cs/level per
+ * Distill a timeline: a snapshot for every minute (gold/xp/cs/level/damage per
  * player) plus a compact log of impactful events (kills, objectives, towers).
  */
 export function distillTimeline(
@@ -462,12 +459,12 @@ export function distillTimeline(
   };
 
   const frames = timeline.info.frames;
-  const lastMinute = Math.floor((frames.at(-1)?.timestamp ?? 0) / 60000);
 
+  // One snapshot per minute. Frames arrive ~1/min; frame[0] is the 0:00 start
+  // state (all zeros), so we begin at minute 1.
   const snapshots: TimelineSnapshot[] = [];
-  for (const minute of SNAPSHOT_MINUTES) {
-    if (minute > lastMinute) break;
-    const frame = frames[minute]; // frames are ~1/min, index ≈ minute
+  for (let minute = 1; minute < frames.length; minute++) {
+    const frame = frames[minute];
     if (!frame) continue;
     const players = Object.values(frame.participantFrames).map((pf) => {
       const meta = byParticipantId.get(pf.participantId);
