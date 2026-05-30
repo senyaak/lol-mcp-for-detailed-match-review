@@ -400,6 +400,8 @@ export interface TimelineSnapshot {
     xp: number;
     cs: number;
     level: number;
+    dmgChamps: number; // cumulative damage to champions by this minute
+    dmgTaken: number; // cumulative damage taken by this minute
   }[];
 }
 
@@ -476,6 +478,8 @@ export function distillTimeline(
         xp: pf.xp,
         cs: pf.minionsKilled + pf.jungleMinionsKilled,
         level: pf.level,
+        dmgChamps: pf.damageStats?.totalDamageDoneToChampions ?? 0,
+        dmgTaken: pf.damageStats?.totalDamageTaken ?? 0,
       };
     });
     snapshots.push({ minute, players });

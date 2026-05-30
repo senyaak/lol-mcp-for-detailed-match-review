@@ -364,6 +364,11 @@ export interface RawParticipantFrame {
   minionsKilled: number;
   jungleMinionsKilled: number;
   position?: { x: number; y: number };
+  // Cumulative damage up to this frame.
+  damageStats?: {
+    totalDamageDoneToChampions: number;
+    totalDamageTaken: number;
+  };
 }
 
 export interface RawTimelineEvent {
