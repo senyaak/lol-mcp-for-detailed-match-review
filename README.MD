@@ -16,6 +16,8 @@ I gain?"* 🧠
 | --- | --- |
 | `get_recent_matches` | Lists a player's recent games as compact one-line summaries (champion, role, win/loss, KDA, CS/min, date). Paginated via `start` + `count`; the response includes `nextStart` to page further back. |
 | `get_match_detail` | Full distilled detail of one match: both teams, every player's champion/role/KDA/CS/gold/damage/vision/items, team objectives, target player highlighted. Defaults to the most recent match; pass `matchId` for any match or `index` for the Nth most recent. |
+| `get_item_info` | Look up concrete stats, passive/active effects, gold cost, tags, and build path for items by name (as they appear in `items`) or id. Static Data Dragon data — no Riot API calls. |
+| `get_rune_info` | Look up rune effect text (tree, slot, short/long description) by name (as they appear in `runes`) or id. Static Data Dragon data — no Riot API calls. |
 
 ### ✨ `get_match_detail` enrichments (all on by default)
 

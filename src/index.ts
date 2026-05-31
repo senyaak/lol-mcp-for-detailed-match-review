@@ -7,6 +7,8 @@
  * Tools:
  *   get_recent_matches — list a player's recent games (one-line summaries)
  *   get_match_detail   — full distilled detail of one match (last by default)
+ *   get_item_info      — stats/effects/cost/build path for items (Data Dragon)
+ *   get_rune_info      — effect text for runes (Data Dragon)
  *
  * Requires env RIOT_API_KEY (https://developer.riotgames.com).
  * Listens on PORT (default 3849) at /mcp; health check at /health.
@@ -51,7 +53,12 @@ import {
   summarizeForTarget,
   type DistilledMatch,
 } from "./format.js";
-import { loadNameTables, type NameTables } from "./ddragon.js";
+import {
+  loadNameTables,
+  lookupItems,
+  lookupRunes,
+  type NameTables,
+} from "./ddragon.js";
 import { cacheStats, initDiskCache } from "./cache.js";
 import { getLpForMatch, recordPoll } from "./lptracker.js";
 
@@ -485,6 +492,61 @@ function registerTools(server: McpServer): void {
       }
     },
   );
+
+  server.registerTool(
+    "get_item_info",
+    {
+      title: "Get item stats",
+      description:
+        "Look up concrete stats and effects for one or more League items by name " +
+        "(as they appear in a match's `items`, e.g. 'Infinity Edge') or numeric id. " +
+        "Returns the item's stats, passive/active description, gold cost, tags, and " +
+        "build path (builds from / into). Use it to interpret what a player actually " +
+        "bought. Static Data Dragon data — no Riot API calls.",
+      inputSchema: {
+        items: z
+          .array(z.string())
+          .min(1)
+          .describe(
+            "Item names or numeric ids to look up, e.g. ['Infinity Edge', 'Bloodthirster'].",
+          ),
+      },
+    },
+    async ({ items }) => {
+      try {
+        return asText({ items: await lookupItems(items) });
+      } catch (err) {
+        return asError(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_rune_info",
+    {
+      title: "Get rune effects",
+      description:
+        "Look up the effect text for one or more runes by name (as they appear in a " +
+        "match's `runes`, e.g. 'Press the Attack', 'Conqueror') or numeric id. Returns " +
+        "the rune's tree, slot row (0 = keystone), and short/long effect description. " +
+        "Static Data Dragon data — no Riot API calls.",
+      inputSchema: {
+        runes: z
+          .array(z.string())
+          .min(1)
+          .describe(
+            "Rune names or numeric ids to look up, e.g. ['Conqueror', 'Triumph'].",
+          ),
+      },
+    },
+    async ({ runes }) => {
+      try {
+        return asText({ runes: await lookupRunes(runes) });
+      } catch (err) {
+        return asError(err);
+      }
+    },
+  );
 }
 
 function createServer(): McpServer {
@@ -494,8 +556,10 @@ function createServer(): McpServer {
       instructions:
         "MCP server for analyzing League of Legends matches via the Riot API. " +
         "Use get_recent_matches to list a player's games, and get_match_detail for a " +
-        "full per-player/per-team breakdown of one match. Player is always a Riot ID " +
-        '("GameName#TAG"); region defaults to europe.',
+        "full per-player/per-team breakdown of one match. To interpret what players " +
+        "built, look up item stats with get_item_info and rune effects with " +
+        "get_rune_info (pass the names exactly as they appear in the match detail). " +
+        'Player is always a Riot ID ("GameName#TAG"); region defaults to europe.',
     },
   );
   registerTools(server);
