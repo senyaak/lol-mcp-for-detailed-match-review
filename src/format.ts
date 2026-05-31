@@ -415,6 +415,9 @@ export interface TimelineEvent {
   assists?: string[];
   /** For objectives: which team secured it. */
   team?: "Blue" | "Red";
+  /** For ITEM events: the buying/selling champion and the item name. */
+  player?: string;
+  item?: string;
 }
 
 export interface DistilledTimeline {
@@ -429,7 +432,17 @@ export interface DistilledTimeline {
 export function distillTimeline(
   timeline: RawTimeline,
   match: RawMatch,
+  tables: NameTables | null = null,
+  buildItems: Set<number> | null = null,
 ): DistilledTimeline {
+  const itemOf = (id?: number): string => {
+    if (!id) return "?";
+    return tables ? itemName(tables, id) : `Item#${id}`;
+  };
+  // Surface build items (incl. components) but skip wards/potions/trinkets. With
+  // no set available, fall back to keeping everything.
+  const isBuildItem = (id?: number): boolean =>
+    !buildItems || (id != null && buildItems.has(id));
   // participantId (1-10) -> { champion, team }
   const byParticipantId = new Map<
     number,
@@ -540,6 +553,46 @@ export function distillTimeline(
             type: "BUILDING",
             detail: `${killer} destroyed ${what}${lane}`,
             killer,
+          });
+          break;
+        }
+        case "ITEM_PURCHASED": {
+          if (!isBuildItem(e.itemId)) break;
+          const player = champOf(e.participantId);
+          const item = itemOf(e.itemId);
+          events.push({
+            minute,
+            type: "ITEM_BUY",
+            detail: `${player} bought ${item}`,
+            player,
+            item,
+          });
+          break;
+        }
+        case "ITEM_SOLD": {
+          if (!isBuildItem(e.itemId)) break;
+          const player = champOf(e.participantId);
+          const item = itemOf(e.itemId);
+          events.push({
+            minute,
+            type: "ITEM_SELL",
+            detail: `${player} sold ${item}`,
+            player,
+            item,
+          });
+          break;
+        }
+        case "ITEM_UNDO": {
+          // A purchase was undone (beforeId bought, reverted to afterId/refund).
+          if (!isBuildItem(e.beforeId)) break;
+          const player = champOf(e.participantId);
+          const item = itemOf(e.beforeId);
+          events.push({
+            minute,
+            type: "ITEM_UNDO",
+            detail: `${player} undid purchase of ${item}`,
+            player,
+            item,
           });
           break;
         }

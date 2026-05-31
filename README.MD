@@ -18,6 +18,8 @@ I gain?"* 🧠
 | `get_match_detail` | Full distilled detail of one match: both teams, every player's champion/role/KDA/CS/gold/damage/vision/items, team objectives, target player highlighted. Defaults to the most recent match; pass `matchId` for any match or `index` for the Nth most recent. |
 | `get_item_info` | Look up concrete stats, passive/active effects, gold cost, tags, and build path for items by name (as they appear in `items`) or id. Static Data Dragon data — no Riot API calls. |
 | `get_rune_info` | Look up rune effect text (tree, slot, short/long description) by name (as they appear in `runes`) or id. Static Data Dragon data — no Riot API calls. |
+| `get_champion_info` | Look up a champion's kit (title, roles, resource, passive, Q/W/E/R with effect text + cooldown/cost/range, base stats) by id or display name. Static Data Dragon data — no Riot API calls. |
+| `get_match_metadata` | One-shot reference dump for a match: every champion, item, and rune across all 10 players, each resolved to full Data Dragon detail. Defaults to the most recent match; pass `matchId` or `index`. The only Riot call is resolving the match itself. |
 
 ### ✨ `get_match_detail` enrichments (all on by default)
 
@@ -26,7 +28,7 @@ I gain?"* 🧠
 | `names` | Item/rune/spell ids resolved to readable names via Data Dragon. | cached static |
 | `ranks` | Each of the 10 players' ranked tier/division/LP + split winrate & hot streak (League-V4). | ~10 calls |
 | `mastery` | Each player's mastery level + points on the champion they played (Champion-Mastery-V4). | ~10 calls |
-| `timeline` | Per-minute gold/xp/cs/level/damage snapshots (one per game minute) + a log of kill/objective/tower events, **and** the target's `laning` score. | 1 call |
+| `timeline` | Per-minute gold/xp/cs/level/damage snapshots (one per game minute) + a log of kill/objective/tower **and item** events (buys/sells/undos including components, so the full build path shows — only potions, wards and trinkets are filtered out), **and** the target's `laning` score. | 1 call |
 | `history` | Rough recent form for **all 10** players: last N games as champion / score / win-loss (remakes flagged). Default 5, max 10, 0 = off. | ~N+1 calls/player |
 
 All enrichments are best-effort: a failing sub-request is noted in `_warnings`
@@ -42,8 +44,12 @@ the first for "how much I locked enemies down").
 
 **Timeline events** carry structured fields next to the human-readable `detail`:
 `killer` / `victim` / `assists[]` for kills, `killer` / `assists[]` / `team` for
-objectives — so you can filter (e.g. "when did I die") without parsing strings.
-`killerId 0` (minions/turret/execution) is labelled `minions/turret`.
+objectives, and `player` / `item` for item events — so you can filter (e.g. "when
+did I die", "when did I complete my second item", "did I sell anything") without
+parsing strings. `killerId 0` (minions/turret/execution) is labelled
+`minions/turret`. Item events (`ITEM_BUY` / `ITEM_SELL` / `ITEM_UNDO`) include
+components, so the full build path is visible (early anti-heal, build changes,
+shop undos) — only potions, wards and trinkets are filtered out.
 
 **The target** additionally gets:
 

@@ -9,6 +9,8 @@
  *   get_match_detail   — full distilled detail of one match (last by default)
  *   get_item_info      — stats/effects/cost/build path for items (Data Dragon)
  *   get_rune_info      — effect text for runes (Data Dragon)
+ *   get_champion_info  — abilities/stats for champions (Data Dragon)
+ *   get_match_metadata — all champions/items/runes in a match, resolved at once
  *
  * Requires env RIOT_API_KEY (https://developer.riotgames.com).
  * Listens on PORT (default 3849) at /mcp; health check at /health.
@@ -54,7 +56,9 @@ import {
   type DistilledMatch,
 } from "./format.js";
 import {
+  loadBuildItemIds,
   loadNameTables,
+  lookupChampions,
   lookupItems,
   lookupRunes,
   type NameTables,
@@ -281,8 +285,11 @@ async function buildMatchDetail(
   // needs the per-minute frames.
   if (opts.timeline) {
     try {
-      const tl = await getMatchTimeline(region, match.metadata.matchId);
-      detail.timeline = distillTimeline(tl, match);
+      const [tl, buildItems] = await Promise.all([
+        getMatchTimeline(region, match.metadata.matchId),
+        loadBuildItemIds().catch(() => null),
+      ]);
+      detail.timeline = distillTimeline(tl, match, tables, buildItems);
       if (detail.target) {
         const laning = computeLaning(tl, match, targetPuuid);
         if (laning) detail.target.laning = laning;
@@ -547,6 +554,117 @@ function registerTools(server: McpServer): void {
       }
     },
   );
+
+  server.registerTool(
+    "get_champion_info",
+    {
+      title: "Get champion abilities",
+      description:
+        "Look up a champion's kit by name (as it appears in a match's `champion`, e.g. " +
+        "'Aatrox', or the display name like 'Wukong') or several at once. Returns the " +
+        "champion's title, roles, resource, passive, and Q/W/E/R abilities with effect " +
+        "text, cooldowns, costs, and range, plus base stats. Use it to understand what a " +
+        "player's champion can do. Static Data Dragon data — no Riot API calls.",
+      inputSchema: {
+        champions: z
+          .array(z.string())
+          .min(1)
+          .describe(
+            "Champion ids or display names to look up, e.g. ['Aatrox', 'Wukong'].",
+          ),
+      },
+    },
+    async ({ champions }) => {
+      try {
+        return asText({ champions: await lookupChampions(champions) });
+      } catch (err) {
+        return asError(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_match_metadata",
+    {
+      title: "Get match reference data",
+      description:
+        "One-shot reference dump for a match: every champion, item, and rune that appears " +
+        "across all 10 players, each resolved to full Data Dragon detail (champion kits, " +
+        "item stats/effects, rune effects). Saves looking each one up individually after " +
+        "get_match_detail. Defaults to the player's most recent match; pass `matchId` for a " +
+        "specific game or `index` for the Nth most recent. Static Data Dragon data — the " +
+        "only Riot call is resolving the match itself.",
+      inputSchema: {
+        riotId: riotIdSchema,
+        region: regionSchema,
+        matchId: z
+          .string()
+          .optional()
+          .describe(
+            "Specific match ID (e.g. 'EUW1_1234567890'). If omitted, uses the player's recent matches.",
+          ),
+        index: z
+          .number()
+          .int()
+          .min(0)
+          .default(0)
+          .describe("Which recent match when matchId is omitted. 0 = most recent (default)."),
+      },
+    },
+    async ({ riotId, region, matchId, index }) => {
+      try {
+        const { gameName, tagLine } = resolveRiotId(riotId);
+        const account = await getAccountByRiotId(region, gameName, tagLine);
+
+        let id = matchId;
+        if (!id) {
+          const ids = await getMatchIds(region, account.puuid, {
+            start: index,
+            count: 1,
+          });
+          if (ids.length === 0) {
+            throw new Error(
+              `No match found at index ${index} for ${account.gameName}#${account.tagLine}.`,
+            );
+          }
+          id = ids[0];
+        }
+
+        const match = await getMatch(region, id);
+
+        // Collect the distinct champions / items / runes used in the match.
+        const champs = new Set<string>();
+        const items = new Set<number>();
+        const runes = new Set<number>();
+        for (const p of match.info.participants) {
+          champs.add(p.championName);
+          for (const it of [p.item0, p.item1, p.item2, p.item3, p.item4, p.item5, p.item6]) {
+            if (it > 0) items.add(it);
+          }
+          // Selected runes (keystone + minor picks); skip tree-style ids and stat
+          // shards — they aren't in runesReforged and would resolve to notFound.
+          for (const style of p.perks?.styles ?? []) {
+            for (const sel of style.selections) runes.add(sel.perk);
+          }
+        }
+
+        const [champions, itemInfo, runeInfo] = await Promise.all([
+          lookupChampions([...champs]),
+          lookupItems([...items].map(String)),
+          lookupRunes([...runes].map(String)),
+        ]);
+
+        return asText({
+          matchId: match.metadata.matchId,
+          champions,
+          items: itemInfo,
+          runes: runeInfo,
+        });
+      } catch (err) {
+        return asError(err);
+      }
+    },
+  );
 }
 
 function createServer(): McpServer {
@@ -557,8 +675,10 @@ function createServer(): McpServer {
         "MCP server for analyzing League of Legends matches via the Riot API. " +
         "Use get_recent_matches to list a player's games, and get_match_detail for a " +
         "full per-player/per-team breakdown of one match. To interpret what players " +
-        "built, look up item stats with get_item_info and rune effects with " +
-        "get_rune_info (pass the names exactly as they appear in the match detail). " +
+        "built and played, look up item stats with get_item_info, rune effects with " +
+        "get_rune_info, and champion abilities with get_champion_info (pass the names " +
+        "exactly as they appear in the match detail), or get_match_metadata to resolve " +
+        "every champion/item/rune in a match at once. " +
         'Player is always a Riot ID ("GameName#TAG"); region defaults to europe.',
     },
   );

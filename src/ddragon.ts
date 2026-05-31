@@ -33,20 +33,19 @@ async function latestVersion(): Promise<string> {
 
 async function loadItems(): Promise<Record<number, string>> {
   if (!itemsPromise) {
-    itemsPromise = (async () => {
-      const version = await latestVersion();
-      const data = await fetchJson<{ data: Record<string, { name: string }> }>(
-        `${DDRAGON}/cdn/${version}/data/${LOCALE}/item.json`,
-      );
-      const map: Record<number, string> = {};
-      for (const [id, item] of Object.entries(data.data)) {
-        map[Number(id)] = item.name;
-      }
-      return map;
-    })().catch((e) => {
-      itemsPromise = null;
-      throw e;
-    });
+    // Derive names from the full item table so item.json is fetched only once.
+    itemsPromise = loadItemData()
+      .then((data) => {
+        const map: Record<number, string> = {};
+        for (const [id, item] of Object.entries(data)) {
+          map[Number(id)] = item.name;
+        }
+        return map;
+      })
+      .catch((e) => {
+        itemsPromise = null;
+        throw e;
+      });
   }
   return itemsPromise;
 }
@@ -187,6 +186,36 @@ function loadItemData(): Promise<Record<string, RawItem>> {
   return itemDataPromise;
 }
 
+let buildItemsPromise: Promise<Set<number>> | null = null;
+
+/**
+ * Ids of "build" items for the current patch — every purchasable item that is
+ * not a consumable (potions, wards, elixirs, biscuits) or trinket. Components
+ * are kept, so the timeline shows the full build path (e.g. an early anti-heal
+ * component) — only wards and potions are filtered out.
+ */
+export function loadBuildItemIds(): Promise<Set<number>> {
+  if (!buildItemsPromise) {
+    buildItemsPromise = loadItemData()
+      .then((data) => {
+        const set = new Set<number>();
+        for (const [id, it] of Object.entries(data)) {
+          const tags = it.tags ?? [];
+          const purchasable = it.gold?.purchasable !== false;
+          if (purchasable && !tags.includes("Consumable") && !tags.includes("Trinket")) {
+            set.add(Number(id));
+          }
+        }
+        return set;
+      })
+      .catch((e) => {
+        buildItemsPromise = null;
+        throw e;
+      });
+  }
+  return buildItemsPromise;
+}
+
 function loadRuneTrees(): Promise<RawRuneTree[]> {
   if (!runeTreesPromise) {
     runeTreesPromise = (async () => {
@@ -296,4 +325,123 @@ export async function lookupRunes(
       : entries.find((e) => e.nameKey === t.toLowerCase());
     return hit ? { query, ...hit.info } : { query, notFound: true as const };
   });
+}
+
+// --- Champion details (abilities, stats). -----------------------------------
+
+interface RawChampSpell {
+  name: string;
+  description: string;
+  cooldownBurn: string; // e.g. "16/14/12/10/8"
+  costBurn: string; // e.g. "30" or "70/80/90/100/110"
+  rangeBurn: string; // e.g. "300"
+}
+
+interface RawChampDetail {
+  id: string;
+  key: string;
+  name: string;
+  title: string;
+  tags: string[];
+  partype?: string; // resource: Mana / Energy / ...
+  passive: { name: string; description: string };
+  spells: RawChampSpell[];
+  stats: Record<string, number>;
+}
+
+let champListPromise: Promise<Map<string, string>> | null = null;
+const champDetailCache = new Map<string, Promise<RawChampDetail>>();
+
+/** name/displayName (lowercased) -> champion id (e.g. "wukong" -> "MonkeyKing"). */
+function loadChampList(): Promise<Map<string, string>> {
+  if (!champListPromise) {
+    champListPromise = (async () => {
+      const version = await latestVersion();
+      const data = await fetchJson<{
+        data: Record<string, { id: string; name: string }>;
+      }>(`${DDRAGON}/cdn/${version}/data/${LOCALE}/champion.json`);
+      const map = new Map<string, string>();
+      for (const champ of Object.values(data.data)) {
+        map.set(champ.id.toLowerCase(), champ.id); // internal id, e.g. MonkeyKing
+        map.set(champ.name.toLowerCase(), champ.id); // display name, e.g. Wukong
+      }
+      return map;
+    })().catch((e) => {
+      champListPromise = null;
+      throw e;
+    });
+  }
+  return champListPromise;
+}
+
+function loadChampDetail(id: string): Promise<RawChampDetail> {
+  let p = champDetailCache.get(id);
+  if (!p) {
+    p = (async () => {
+      const version = await latestVersion();
+      const data = await fetchJson<{ data: Record<string, RawChampDetail> }>(
+        `${DDRAGON}/cdn/${version}/data/${LOCALE}/champion/${id}.json`,
+      );
+      return data.data[id];
+    })().catch((e) => {
+      champDetailCache.delete(id);
+      throw e;
+    });
+    champDetailCache.set(id, p);
+  }
+  return p;
+}
+
+export interface ChampionInfo {
+  query: string;
+  name: string;
+  title: string;
+  roles: string[];
+  resource?: string;
+  passive: { name: string; description: string };
+  abilities: {
+    slot: "Q" | "W" | "E" | "R";
+    name: string;
+    description: string;
+    cooldown: string;
+    cost: string;
+    range: string;
+  }[];
+  baseStats: Record<string, number>;
+}
+
+const SPELL_SLOTS = ["Q", "W", "E", "R"] as const;
+
+/** Look up champion abilities/stats by champion id or display name. */
+export async function lookupChampions(
+  queries: string[],
+): Promise<(ChampionInfo | { query: string; notFound: true })[]> {
+  const list = await loadChampList();
+  return Promise.all(
+    queries.map(async (query) => {
+      const id = list.get(query.trim().toLowerCase());
+      if (!id) return { query, notFound: true as const };
+      const c = await loadChampDetail(id);
+      return {
+        query,
+        name: c.name,
+        title: c.title,
+        roles: c.tags,
+        resource: c.partype || undefined,
+        passive: {
+          name: c.passive.name,
+          description: stripHtml(c.passive.description),
+        },
+        abilities: c.spells.slice(0, 4).map((s, i) => ({
+          slot: SPELL_SLOTS[i],
+          name: s.name,
+          description: stripHtml(s.description),
+          cooldown: s.cooldownBurn,
+          cost: s.costBurn,
+          range: s.rangeBurn,
+        })),
+        baseStats: c.stats,
+      };
+    }),
+  );
 }

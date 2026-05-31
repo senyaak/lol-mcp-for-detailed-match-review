@@ -389,6 +389,11 @@ export interface RawTimelineEvent {
   teamId?: number;
   killType?: string;
   level?: number;
+  // ITEM_PURCHASED / ITEM_SOLD / ITEM_DESTROYED carry itemId; ITEM_UNDO carries
+  // beforeId (what was bought) and afterId (what it reverted to, usually 0).
+  itemId?: number;
+  beforeId?: number;
+  afterId?: number;
 }
 
 /** Full match timeline. Match-V5, regional routing. Cached (immutable). */
