@@ -63,6 +63,10 @@ const RANKED_QUEUES: Record<number, "Solo" | "Flex"> = {
 
 const PORT = Number(process.env.PORT) || 3849;
 
+// Client result-size cap advertised on get_match_detail via _meta. Per-minute
+// timeline snapshots make the payload large, so raise it from the client default.
+const MAX_RESULT_SIZE = Number(process.env.MCP_MAX_RESULT_SIZE) || 500000;
+
 // Defaults from the environment so the player/region aren't hardcoded.
 const DEFAULT_RIOT_ID = process.env.DEFAULT_RIOT_ID?.trim() || undefined;
 const DEFAULT_REGION: Region = (REGIONS as string[]).includes(
@@ -366,6 +370,9 @@ function registerTools(server: McpServer): void {
     "get_match_detail",
     {
       title: "Get detailed match data",
+      // Per-minute timeline snapshots make this payload large; raise the client
+      // result-size cap so full matches aren't truncated (MCP_MAX_RESULT_SIZE).
+      _meta: { "anthropic/maxResultSizeChars": MAX_RESULT_SIZE },
       description:
         "Fetch the full distilled detail of one match for analysis: both teams, every " +
         "player's champion/role/KDA/CS/gold/damage/vision/items, team objectives, and the " +

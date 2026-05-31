@@ -100,6 +100,7 @@ Get a Riot API key at <https://developer.riotgames.com> and set it as
 | `DEFAULT_REGION` | Regional routing cluster: `europe` (default) / `americas` / `asia` / `sea`. |
 | `PORT` | HTTP port (default 3849). |
 | `CACHE_DIR` | On-disk cache directory (default `<project>/.cache`). |
+| `MCP_MAX_RESULT_SIZE` | Client result-size cap (chars) advertised on `get_match_detail` via `_meta` so per-minute timelines aren't truncated (default 500000). |
 | `LP_POLL_MINUTES` | LP poll interval in minutes (default 10). |
 | `LP_TRACK` | Riot IDs to track LP for, comma-separated (default = `DEFAULT_RIOT_ID`). |
 
