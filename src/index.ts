@@ -112,10 +112,19 @@ const riotIdSchema = z
     'Riot ID in "GameName#TAG" form, e.g. "Faker#KR1". Optional — falls back to the DEFAULT_RIOT_ID env var.',
   );
 
-function asText(payload: unknown) {
+function asText(payload: unknown, pretty = false) {
   return {
+    // Advertise the size cap (read by the Claude Code CLI harness). The claude.ai
+    // web connector ignores it and hard-caps tool results at ~150k chars, so the
+    // real defence against disk-offload is compact (un-indented) JSON by default —
+    // pretty-printing the heaviest payload doubled it (~86k → ~176k) and tipped it
+    // over the limit. Opt into the readable version with `pretty: true`.
+    _meta: { "anthropic/maxResultSizeChars": MAX_RESULT_SIZE },
     content: [
-      { type: "text" as const, text: JSON.stringify(payload, null, 2) },
+      {
+        type: "text" as const,
+        text: pretty ? JSON.stringify(payload, null, 2) : JSON.stringify(payload),
+      },
     ],
   };
 }
@@ -423,6 +432,12 @@ function registerTools(server: McpServer): void {
           .describe(
             "Recent games of rough form (champ/score/win-loss) to attach per player, all 10 players. 0 = off. Heavier on a cold cache.",
           ),
+        pretty: z
+          .boolean()
+          .default(false)
+          .describe(
+            "Return indented, human-readable JSON. Doubles the response size — the full enrichment exceeds the claude.ai ~150k-char result cap when pretty, so leave off unless you need to read the raw output.",
+          ),
       },
     },
     async ({
@@ -435,6 +450,7 @@ function registerTools(server: McpServer): void {
       mastery,
       timeline,
       history,
+      pretty,
     }) => {
       try {
         const { gameName, tagLine } = resolveRiotId(riotId);
@@ -463,7 +479,7 @@ function registerTools(server: McpServer): void {
           { names, ranks, mastery, timeline, history },
           isLatest,
         );
-        return asText(detail);
+        return asText(detail, pretty);
       } catch (err) {
         return asError(err);
       }
